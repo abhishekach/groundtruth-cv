@@ -69,7 +69,7 @@ It never applies to anything, sends anything or contacts anyone. It drafts; you 
 Requires Python 3.11+ and an API key for at least one model provider.
 
 ```bash
-pip install git+https://github.com/<owner>/groundtruth-cv.git
+pip install git+https://github.com/abhishekach/groundtruth-cv.git
 
 mkdir my-applications && cd my-applications
 groundtruth init      # creates fact_sheet.md, settings.yaml, .env and a .gitignore that keeps them private
