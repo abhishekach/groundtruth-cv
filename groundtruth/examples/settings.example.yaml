@@ -1,0 +1,64 @@
+# Your rules. Everything personal lives here or in fact_sheet.md, never in the code.
+# This example belongs to the made-up person in fact_sheet.example.md: replace it with your own.
+
+# One paragraph: who you are and which roles you are going for. Both the fit judge and the writer read it.
+target: >
+  Senior data analyst with five years in logistics, moving into analytics engineering and data engineering roles.
+  Also open to BI lead roles. Prefers the Netherlands, Belgium and Germany; hybrid or remote.
+
+# How the CV leads for each kind of role. The writer picks the one that fits the posting best. Cite fact IDs.
+playbooks:
+  - when: Analytics engineering or data engineering roles
+    lead_with: the Snowflake and dbt migration (D1, E1), data modelling (E4), the dbt package (C1) and the dbt
+      certificate (F4). Key Skills starts with "Data engineering".
+  - when: BI, reporting or data analyst roles
+    lead_with: the delivery-performance dashboard and its users (D1), the automated KPI report (D2), Power BI (E3)
+      and training non-technical users (E6).
+  - when: Roles with a strong business or operations focus
+    lead_with: stakeholder work with depot and planning managers (D1, D2, E6), the staffing model (D2) and the MSc
+      thesis on volume forecasting (B2).
+
+# Facts every job CV must show, and how.
+must_include:
+  - fact: F4
+    describe: the dbt certificate under Languages & Certificates
+
+# Facts never shown on a job CV.
+never_include:
+  - fact: C2
+    describe: volunteer work stays off job CVs unless asked for in a revision
+
+# Phrases (regular expressions) your CV must never use, on top of the built-in cliché list.
+avoid_wording:
+  - "\\bguru\\b"
+  - "\\bninja\\b"
+
+# Your language levels (CEFR A1-C2, or native). A posting that REQUIRES a higher level is marked Not eligible.
+languages:
+  English: C2
+  Slovenian: native
+  Dutch: B1
+
+# Countries (ISO codes) where you can already work. Elsewhere, a job counts only if the posting offers sponsorship.
+work_rights: [NL, BE, DE, AT, FR, IE, ES, IT, PT, SE, DK, FI, SI, LU, PL, CZ]
+needs_sponsorship_elsewhere: true
+
+# Extra rules for the fit judge, in plain words.
+hard_rules:
+  - Roles that require on-call or night shifts are a hard no.
+  - Pure machine-learning research roles are a stretch at best.
+
+# Fills {EARLIEST_START} in the fact sheet: today plus this many months.
+start_after_months: 1
+
+# Optional: a line under your contact details for jobs in these countries (the quoted 'CV line' in that fact).
+# permit_line:
+#   fact: A4
+#   countries: [DE, AT, CH]
+
+# Optional: a portrait photo, added only where the employer's market expects one (code decides).
+# photo: photo.jpg
+
+english: international        # international | british | american
+cv_max_pages: 2
+letter_words: [250, 400]

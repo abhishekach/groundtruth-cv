@@ -1,0 +1,271 @@
+"""Offline tests: fake models, the example person, a temporary workspace. No API keys, no network, no cost.
+
+    pytest            (or: python tests/test_offline.py)
+"""
+from __future__ import annotations
+
+import json
+import shutil
+import sys
+import tempfile
+from datetime import date
+from pathlib import Path
+from types import SimpleNamespace as NS
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from groundtruth import cli, docs, factsheet as F, llm, match as M, posting as P, tailor as T, writer as W  # noqa: E402
+from groundtruth.settings import Settings  # noqa: E402
+from groundtruth.workspace import Workspace  # noqa: E402
+
+EX = ROOT / "groundtruth" / "examples"
+POSTING = (EX / "job_posting.example.txt").read_text()
+
+
+def workspace() -> Workspace:
+    d = Path(tempfile.mkdtemp())
+    assert cli.main(["init", "--dir", str(d)]) == 0
+    llm.configure(d, "balanced")
+    return Workspace.find(str(d))
+
+
+# ---------------------------------------------------------------- fact sheet
+def test_fact_sheet():
+    text = (EX / "fact_sheet.example.md").read_text()
+    facts = F.facts_by_id(text)
+    assert {"A1", "A3", "B1", "D1", "D2", "E3", "F4", "H1"} <= set(facts)
+    assert F.validate(text) == []
+    assert "duplicate IDs: D1" in F.validate(text + "\n- D1. Again\n")[0]
+    h = F.header(facts, "DE", ("A4", ["DE"]))
+    assert h["name"] == "Alex Morgan" and h["email"] == "alex.morgan@example.com" and "+31 6 0000 0000" in h["contact"]
+    assert h["permit"] == "EU citizen, no work permit needed in the EU"
+    assert F.header(facts, "NL", ("A4", ["DE"]))["permit"] is None
+    assert F.check_numbers("Moved 30 reporting queries to Snowflake", ["D1"], facts) is None
+    assert "'45'" in F.check_numbers("Moved 45 reporting queries", ["D1"], facts)
+    assert F.check_numbers("x", ["Z9"], facts).startswith("cites IDs")
+    assert F.earliest_start(1, date(2026, 1, 31)) == "28 February 2026"
+    assert F.earliest_start(2, date(2026, 11, 15)) == "15 January 2027"
+    assert "{EARLIEST_START}" not in F.with_dates(text)
+
+
+# ---------------------------------------------------------------- hard rules
+def test_eligibility():
+    s = Settings(languages={"English": "C2", "German": "A2"}, work_rights=["NL", "DE"])
+    ex = lambda **k: M.Extracted(**{"is_job_posting": True, "title": "x", "country_code": "DE", **k})  # noqa: E731
+    assert M.eligibility(ex(), s)[0] == "Eligible"
+    lab, why = M.eligibility(ex(languages_required=[M.LangReq(language="German", level="C1", required=True)]), s)
+    assert lab == "Not eligible" and "German C1" in why and "A2" in why
+    assert M.eligibility(ex(languages_required=[M.LangReq(language="German", level="C1", required=False)]), s)[0] == "Eligible"
+    assert M.eligibility(ex(languages_required=[M.LangReq(language="French", required=True)]), s)[0] == "Not eligible"
+    assert M.eligibility(ex(country_code="GB"), s)[0] == "Unclear"
+    assert M.eligibility(ex(country_code="GB", visa_sponsorship="offered"), s)[0] == "Likely"
+    assert M.eligibility(ex(country_code="GB", right_to_work_required=True), s)[0] == "Not eligible"
+    assert M.eligibility(ex(country_code="GB"), s.model_copy(update={"needs_sponsorship_elsewhere": False}))[0] == "Eligible"
+
+
+# ---------------------------------------------------------------- reading postings
+def test_posting():
+    page = ('<html><body><div id="app"></div><script type="application/ld+json">{"@context":"https://schema.org",'
+            '"@type":"JobPosting","title":"Analytics Engineer","hiringOrganization":{"name":"Example Mobility"},'
+            '"validThrough":"2026-11-30","description":"<p>' + "Own our dbt project on Snowflake. " * 20 + '</p>"}'
+            '</script></body></html>')
+    t = P.jobposting_text(page)
+    assert t and "Example Mobility" in t and "2026-11-30" in t and "<p>" not in t
+    d = Path(tempfile.mkdtemp())
+    (d / "job.html").write_text(page)
+    assert P.read(file=str(d / "job.html"))[0].startswith("Analytics Engineer")
+    assert P.read(text=POSTING)[1] == "pasted text"
+    for bad in (dict(text="too short"), dict(url="https://www.linkedin.com/jobs/view/123"), dict()):
+        try:
+            P.read(**bad)
+            raise AssertionError(f"should refuse {bad}")
+        except P.PostingError:
+            pass
+
+
+# ---------------------------------------------------------------- model gateway
+def _resp(text, finish="stop", model="m"):
+    return NS(model=model, usage=NS(prompt_tokens=10, completion_tokens=5),
+              choices=[NS(finish_reason=finish, message=NS(content=text))])
+
+
+def test_llm_plan():
+    from pydantic import BaseModel
+
+    class Out(BaseModel):
+        keep: list[int]
+
+    workspace()
+    calls = []
+
+    def run(script):
+        llm.S.native_refused.clear()
+        calls.clear()
+
+        def fake(role, messages, temperature, max_tokens, response_format=None, fallback=True):
+            calls.append(dict(native=response_format is not None, fallback=fallback, mt=max_tokens,
+                              in_prompt="JSON schema" in messages[0]["content"]))
+            r = script[len(calls) - 1]
+            if isinstance(r, Exception):
+                raise r
+            return r
+        llm._complete = fake
+
+    class BadRequestError(Exception):
+        pass
+
+    bad = BadRequestError("schema not supported")
+    llm.S.roles["judge"] = {"model": "openai/x"}
+    run([bad, _resp('{"keep":[1]}')])                       # native refused -> schema in the prompt, same model
+    assert llm.ask("judge", "x", schema=Out).keep == [1]
+    assert calls[0]["native"] and calls[1]["in_prompt"] and not calls[1]["fallback"]
+    run([_resp("", finish="length"), _resp('{"keep":[2]}')])  # out of room -> more room
+    assert llm.ask("judge", "x", schema=Out).keep == [2] and calls[1]["mt"] == 2 * calls[0]["mt"]
+    run([bad, bad, _resp('{"keep":[3]}')])                  # backup only in the last step
+    assert llm.ask("judge", "x", schema=Out).keep == [3] and [c["fallback"] for c in calls] == [False, False, True]
+    llm.S.roles["judge"] = {"model": "anthropic/x"}
+    run([_resp('{"keep":[4]}')])                            # Anthropic: schema in the prompt from the start
+    assert llm.ask("judge", "x", schema=Out).keep == [4] and calls[0]["in_prompt"]
+    import os
+    os.environ["GROUNDTRUTH_MONTHLY_BUDGET_USD"] = "0"
+    try:
+        llm.ask("judge", "x")
+        raise AssertionError("budget cap ignored")
+    except llm.BudgetExceeded:
+        pass
+    finally:
+        os.environ.pop("GROUNDTRUTH_MONTHLY_BUDGET_USD")
+
+
+# ---------------------------------------------------------------- the whole pipeline with fake models
+def fake_models(drafts: list):
+    L = W.Line
+
+    def extract(posting):
+        return M.Extracted(is_job_posting=True, title="Analytics Engineer (m/f/d)", company="Example Mobility GmbH",
+                           location="Berlin, Germany", country_code="DE", work_mode="hybrid",
+                           languages_required=[M.LangReq(language="English", level="C1", required=True),
+                                               M.LangReq(language="German", required=False)],
+                           visa_sponsorship="not_mentioned")
+
+    def score(facts_text, ex, posting, label, reason, s):
+        assert "Alex Morgan" in facts_text and label == "Eligible"
+        return M.Fit(fit_score=78, fit_type="direct", matched=["dbt on Snowflake -> D1, E1"], gaps=["No e-mobility domain"],
+                     bridge="Logistics fleet data is close (D1, D2).", why="Direct dbt and Snowflake evidence.")
+
+    def draft(facts_text, job, posting, s, feedback=None, revision=None):
+        drafts.append({"feedback": feedback, "revision": revision})
+        assert "available from" in facts_text and "{EARLIEST_START}" not in facts_text
+        exp = [L(text="Senior Data Analyst | Northwind Logistics BV, Rotterdam, Netherlands | 03/2022 – present",
+                 style="entry", fact_ids=["D1"]),
+               L(text="Moved 30 reporting queries from SQL Server to Snowflake with dbt models and tests", style="bullet",
+                 fact_ids=["D1", "E1"]),
+               L(text="Led the design of the new data warehouse", style="bullet", fact_ids=["D1"])]  # overstated
+        if feedback is None:
+            exp.append(L(text="Cut reporting time by 80%", style="bullet", fact_ids=["D2"]))         # invented number
+        skills = [L(text="Data engineering: SQL, dbt, Snowflake, star schemas", style="text", fact_ids=["E1", "E4"])]
+        certs = [L(text="dbt Analytics Engineering Certification, 2024", style="text", fact_ids=["F4"])] if feedback else []
+        if revision:
+            skills.append(L(text="Python: pandas, scikit-learn", style="text", fact_ids=["E2"]))
+        letter = [W.LetterLine(text="The Analytics Engineer role appeals to me because your city managers act on the data every morning.",
+                               style="text", fact_ids=[], framing=True, para=1),
+                  W.LetterLine(text="At Northwind I moved 30 reporting queries to Snowflake with dbt models and tests.",
+                               style="text", fact_ids=["D1"], para=2),
+                  W.LetterLine(text="I would welcome the chance to discuss the role.", style="text", fact_ids=[],
+                               framing=True, para=4)]
+        return W.JobDraft(
+            headline=L(text="Senior Data Analyst | dbt and Snowflake | Data modelling", style="text", fact_ids=["D1", "E1", "E4"]),
+            cv=[W.Section(heading="Skills", lines=skills), W.Section(heading="Work experience", lines=exp),
+                W.Section(heading="Certificates", lines=certs + [L(text="[TO FILL: Snowflake certification?]", style="text",
+                                                                   fact_ids=[], placeholder=True)])],
+            letter=letter, posting_keywords=["dbt", "Snowflake", "Power BI", "Kubernetes"], photo_expected=False,
+            photo_reason="international tech company", contact_person="Ms Jana Example", reference="AE-2026-14",
+            emphasis=["Led with the dbt migration"], placeholders=["Snowflake certification"],
+            change_log=["Done: added Python"] if revision else [])
+
+    def verify(facts_text, numbered):
+        return {n: W.Verdict(n=n, verdict="overstated" if "Led the design" in l.text else
+                             "placeholder_ok" if "[TO FILL" in l.text else "framing_ok" if l.framing else "supported",
+                             problem="the sheet says 'contributed to the design'" if "Led the design" in l.text else None)
+                for n, l in numbered}
+
+    M.extract, M.score, W.draft, W.verify = extract, score, draft, verify
+
+
+def test_pipeline():
+    ws = workspace()
+    drafts = []
+    fake_models(drafts)
+    folder = T.match_posting(ws, text=POSTING, log=lambda *_: None)
+    m = json.loads((folder / "match.json").read_text())
+    assert m["fit"]["fit_score"] == 78 and m["eligibility"] == "Eligible" and (folder / "posting.txt").exists()
+
+    r = T.tailor(ws, folder, log=lambda *_: None)
+    assert len(drafts) == 2, "one redraft after failures"
+    fb = drafts[1]["feedback"]
+    assert "Led the design" in fb and "'80'" in fb, "both the verifier and the number check send lines back"
+    assert "F4" in fb, "a must-include fact missing from draft 1 is asked for"
+    assert "Power BI" in fb and "Kubernetes" not in fb, "only keywords the fact sheet supports are pushed"
+
+    from pypdf import PdfReader
+    cv = "\n".join(pg.extract_text() for pg in PdfReader(str(r["paths"]["cv_pdf"])).pages)
+    assert "Alex Morgan" in cv and "Moved 30 reporting queries" in cv
+    assert "Led the design" not in cv, "failed lines are never saved"
+    assert "KEY SKILLS" in cv and "PROFESSIONAL EXPERIENCE" in cv and cv.index("KEY SKILLS") < cv.index("PROFESSIONAL EXPERIENCE")
+    assert "[TO FILL" in cv and "dbt Analytics Engineering Certification" in cv
+    assert r["paths"]["cv_pdf"].name == "Alex_Morgan_CV_Example_Mobility_GmbH.pdf"
+    letter = "\n".join(pg.extract_text() for pg in PdfReader(str(r["paths"]["letter_pdf"])).pages)
+    assert "Dear Ms Example," in letter and "Reference AE-2026-14" in letter and "Kind regards" in letter
+    checks = r["paths"]["checks"].read_text()
+    assert "Removed during verification" in checks and "Led the design" in checks
+    assert "Kubernetes — not on your fact sheet" in checks, "keywords you lack are reported, never added"
+    assert r["removed"] == 1 and r["ats_passed"] >= r["ats_total"] - 2
+
+    r2 = T.tailor(ws, folder, change="Add a Python skills line", log=lambda *_: None)
+    assert "PREVIOUS VERSION" in drafts[-1]["revision"] and "Moved 30 reporting queries" in drafts[-1]["revision"]
+    assert any("Done: added Python" in n for n in r2["notes"])
+    assert list((folder / "earlier").iterdir()), "the earlier version is kept"
+    saved = json.loads((folder / "draft.json").read_text())
+    assert saved["requests"] == ["Add a Python skills line"]
+
+
+def test_rules_and_style():
+    s = Settings(never_include=[{"fact": "C2", "describe": "volunteer work"}], avoid_wording=[r"\bninja\b"])
+    L = W.Line
+    assert "never shown" in T.rule_problem(L(text="Club database", style="text", fact_ids=["C2"]), True, s)
+    assert T.rule_problem(L(text="Club database", style="text", fact_ids=["C2"]), False, s) is None, "letters may mention it"
+    assert "ninja" in T.rule_problem(L(text="SQL ninja", style="text", fact_ids=["E1"]), True, s)
+    assert T.tidy("Data Analyst — Northwind", "entry") == "Data Analyst | Northwind"
+    assert T.tidy("I built it — and it works.", "text") == "I built it, and it works."
+    d = W.JobDraft(headline=L(text="Results-driven analyst", style="text", fact_ids=["D1"]), cv=[], letter=[],
+                   posting_keywords=[], photo_expected=False, photo_reason="", emphasis=[], placeholders=[])
+    assert T.style_issues(d) == [("Results-driven analyst", "Results-driven")]
+    assert T.salutation("Prof. Dr. Anna Muller") == "Dear Prof. Dr. Muller," and T.salutation("Jana Example") == "Dear Jana Example,"
+    assert T.salutation("Frau Jana Example") == "Dear Ms Example,"
+    assert "Alex Morgan" not in W.writer_system(Settings()), "no person is baked into the prompts"
+
+
+def test_photo_rule():
+    pol = docs.photo_policy
+    assert pol("DE", "We look forward to your application.", True, True)[0]
+    assert not pol("DE", "Please apply without a photo.", True, True)[0]
+    assert not pol("GB", "", True, True)[0] and not pol("NL", "", True, True)[0]
+    assert not pol("DE", "", True, False)[0]
+
+
+def test_check_command():
+    ws = workspace()
+    assert cli.main(["check", "--dir", str(ws.root)]) == 1, "the example person must be replaced before real use"
+    t = ws.fact_sheet.read_text().replace("Alex Morgan", "Sam Rivera")
+    ws.fact_sheet.write_text(t)
+    assert cli.main(["check", "--dir", str(ws.root)]) == 0
+    assert ".env" in (ws.root / ".gitignore").read_text()
+    shutil.rmtree(ws.root)
+
+
+if __name__ == "__main__":
+    for name, fn in list(globals().items()):
+        if name.startswith("test_"):
+            fn()
+            print(f"  {name}: OK")

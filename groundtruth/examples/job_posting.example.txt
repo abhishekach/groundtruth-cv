@@ -1,0 +1,25 @@
+Analytics Engineer (m/f/d)
+Example Mobility GmbH, Berlin, Germany · Hybrid (2 days in the office) · Reference: AE-2026-14
+
+About us
+Example Mobility runs shared e-bikes in eleven European cities. Our data team of eight people turns trip, fleet and
+maintenance data into the numbers our city managers steer by every morning.
+
+What you will do
+- Own our dbt project on Snowflake: build and test models for trips, fleet health and revenue.
+- Work with city operations managers to turn their reporting questions into reliable data models.
+- Move our remaining legacy reports from scheduled SQL scripts to dbt and Power BI.
+- Review pull requests and help analysts write better SQL.
+
+What you bring
+- 3+ years in analytics engineering, BI engineering or data analysis with a strong modelling focus.
+- Excellent SQL and hands-on dbt experience; Snowflake is a plus.
+- Dimensional modelling (star schemas, slowly changing dimensions).
+- Python for data work.
+- Experience explaining data to non-technical stakeholders.
+- English at C1 level; German is a plus, not a must.
+
+What we offer
+Hybrid work, a mobility budget, 30 days of holiday, and relocation support for candidates moving to Berlin.
+
+Contact: Ms Jana Example, Talent Acquisition. Please apply with your CV and a short cover letter by 30 November 2026.

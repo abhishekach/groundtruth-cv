@@ -1,0 +1,51 @@
+# Groundtruth CV asks for a ROLE, never a model. Pick a profile with GROUNDTRUTH_MODELS=<name>
+# (default: balanced), or copy this file to models.yaml in your workspace and edit it.
+#
+# Any model LiteLLM supports works (https://docs.litellm.ai/docs/providers). API keys are read from the usual
+# environment variables: ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, ...
+#
+# Roles
+#   triage    cheap extraction: job title, employer, country, language and visa wording
+#   judge     honest fit score against your fact sheet
+#   writer    drafts the CV and cover letter
+#   verifier  checks every line against your fact sheet. Use a DIFFERENT vendor from the writer:
+#             a model is bad at catching its own inventions.
+# Each role may name a backup model, used only when the main one fails.
+
+profiles:
+  # The author's tested setup: best quality per dollar in a blind cross-vendor test (Oct 2026).
+  # Roughly $0.05-0.15 per tailored application.
+  balanced:
+    triage:   {model: anthropic/claude-haiku-5-5, backup: openai/gpt-6-luna}
+    judge:    {model: openai/gpt-6.1-sol, backup: anthropic/claude-sonnet-5-5}
+    writer:   {model: openai/gpt-6.1-sol, backup: anthropic/claude-sonnet-5-5}
+    verifier: {model: gemini/gemini-3.8-flash, backup: anthropic/claude-sonnet-5-5}
+
+  # Lowest cost with two vendors. Roughly $0.01-0.03 per application. Letters read a little flatter.
+  cheap:
+    triage:   {model: gemini/gemini-3.8-flash}
+    judge:    {model: gemini/gemini-3.8-flash}
+    writer:   {model: anthropic/claude-haiku-5-5}
+    verifier: {model: gemini/gemini-3.8-flash}
+
+  # One key only. The verifier is still a different model from the writer, but the same vendor.
+  anthropic:
+    triage:   {model: anthropic/claude-haiku-5-5}
+    judge:    {model: anthropic/claude-sonnet-5-5}
+    writer:   {model: anthropic/claude-sonnet-5-5}
+    verifier: {model: anthropic/claude-haiku-5-5}
+
+  openai:
+    triage:   {model: openai/gpt-6-luna}
+    judge:    {model: openai/gpt-6.1-sol}
+    writer:   {model: openai/gpt-6.1-sol}
+    verifier: {model: openai/gpt-6-luna}
+
+  # Everything on your own computer with Ollama (free, private, slower; quality depends on the model).
+  # Writer and verifier are the same model here, so the fact check is weaker. Change verifier to a second
+  # local model if you have one.
+  local:
+    triage:   {model: ollama_chat/qwen3:14b, api_base: "http://localhost:11434"}
+    judge:    {model: ollama_chat/qwen3:14b, api_base: "http://localhost:11434"}
+    writer:   {model: ollama_chat/qwen3:14b, api_base: "http://localhost:11434"}
+    verifier: {model: ollama_chat/qwen3:14b, api_base: "http://localhost:11434"}
