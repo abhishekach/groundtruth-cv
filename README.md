@@ -62,6 +62,13 @@ See the results: [CV](docs/example-output/Alex_Morgan_CV_Example_Mobility_GmbH.p
 7. **Revises on request**: `groundtruth revise <folder> "Shorter profile; lead with the SQL training"` applies your
    change and keeps everything else, still under the same rules. Earlier versions are kept.
 
+8. **Recognises a job you already checked**: the same link, the same posting text, or the same employer and job
+   title. It never re-scores or overwrites it; it tells you when you checked it, the fit score, and what you did with
+   it ("Already checked … you APPLIED (since 2026-10-22). Nothing was changed."). `--again` checks it once more into a
+   new folder; the old one is always kept.
+9. **Keeps track of your applications**: `groundtruth status <folder> applied` (or interview, offer, rejected,
+   withdrawn, not applying) records the day; `groundtruth list` shows every job with its fit score and status.
+
 It never applies to anything, sends anything or contacts anyone. It drafts; you decide.
 
 ## Quick start
@@ -84,6 +91,8 @@ groundtruth init      # creates fact_sheet.md, settings.yaml, .env and a .gitign
 groundtruth check
 groundtruth match --url <job link>            # or --file job.pdf, or --text-file job.txt
 groundtruth tailor <the folder it printed>    # or tailor --url ... to match and write in one go
+groundtruth status <folder> applied           # record what you did (interview, offer, rejected, ...)
+groundtruth list                              # every job you checked, with fit score and status
 groundtruth costs                             # this month's model spend
 ```
 

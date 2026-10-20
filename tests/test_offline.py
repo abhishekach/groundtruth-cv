@@ -15,7 +15,7 @@ from types import SimpleNamespace as NS
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from groundtruth import cli, docs, factsheet as F, llm, match as M, posting as P, tailor as T, writer as W  # noqa: E402
+from groundtruth import applications as A, cli, docs, factsheet as F, llm, match as M, posting as P, tailor as T, writer as W  # noqa: E402
 from groundtruth.settings import Settings  # noqa: E402
 from groundtruth.workspace import Workspace  # noqa: E402
 
@@ -231,6 +231,56 @@ def test_pipeline():
     assert list((folder / "earlier").iterdir()), "the earlier version is kept"
     saved = json.loads((folder / "draft.json").read_text())
     assert saved["requests"] == ["Add a Python skills line"]
+
+
+def test_same_job_twice():
+    """A job checked twice by mistake is recognised, reported, and never overwritten."""
+    ws = workspace()
+    drafts = []
+    fake_models(drafts)
+    scored = []
+    _score = M.score
+    M.score = lambda *a, **k: scored.append(1) or _score(*a, **k)
+    first = T.match_posting(ws, url="https://careers.example.com/jobs/ae-2026-14?utm_source=linkedin", text=POSTING, log=lambda *_: None)
+    before = (first / "match.json").read_text()
+    assert A.current(first)["status"] == "matched"
+    A.set_status(first, "applied", "2026-10-22")
+    extracted = []
+    _extract = M.extract
+    M.extract = lambda body: extracted.append(1) or _extract(body)
+
+    for kw, how, model_calls in ((dict(url="https://careers.example.com/jobs/ae-2026-14/"), "the same link", 0),
+                                 (dict(text=POSTING + "\nApply via our careers page."), "the same posting text", 0),
+                                 (dict(text=POSTING.replace("eleven", "twelve") * 0 + "Analytics Engineer at Example Mobility. "
+                                       + "Totally rewritten text with other words. " * 20), "the same employer and job title", 1)):
+        n_ex, n_sc = len(extracted), len(scored)
+        try:
+            T.match_posting(ws, **kw, log=lambda *_: None)
+            raise AssertionError(f"not recognised: {how}")
+        except A.AlreadyMatched as e:
+            assert e.info["how"] == how and e.info["status"] == "applied" and e.info["since"] == "2026-10-22", e.info
+            msg = str(e)
+            assert "you APPLIED (since 2026-10-22)" in msg and "Nothing was changed" in msg and "78/100" in msg
+        assert len(extracted) - n_ex == model_calls and len(scored) == n_sc, "never re-scored; at most the cheap extraction"
+    assert (first / "match.json").read_text() == before and len(list(ws.applications.iterdir())) == 1, "the old entry is untouched"
+
+    again = T.match_posting(ws, text=POSTING, log=lambda *_: None, again=True)
+    assert again != first and again.name.endswith("-2") and (first / "match.json").read_text() == before, "--again: a new folder"
+    import contextlib
+    import io
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        assert cli.main(["match", "--dir", str(ws.root), "--text-file", str(EX / "job_posting.example.txt")]) == 0
+        assert cli.main(["status", again.name, "not applying", "--dir", str(ws.root)]) == 0
+        assert cli.main(["list", "--dir", str(ws.root)]) == 0
+    txt = out.getvalue()
+    assert "Already checked" in txt and "--again" in txt and "2 application(s)" in txt and "not applying" in txt and "applied" in txt
+    try:
+        A.set_status(first, "hired")
+        raise AssertionError("unknown status accepted")
+    except ValueError:
+        pass
+    M.extract, M.score = _extract, _score
 
 
 def test_rules_and_style():

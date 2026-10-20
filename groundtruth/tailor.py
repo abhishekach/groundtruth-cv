@@ -19,7 +19,7 @@ import shutil
 from datetime import date, datetime
 from pathlib import Path
 
-from groundtruth import docs, factsheet as F, match as M, posting as P, writer as W
+from groundtruth import applications as A, docs, factsheet as F, match as M, posting as P, writer as W
 from groundtruth.settings import Settings
 from groundtruth.workspace import Workspace
 
@@ -66,23 +66,39 @@ def tidy(text: str, style: str) -> str:
 
 
 # ---------------------------------------------------------------- matching
-def match_posting(ws: Workspace, url=None, file=None, text=None, log=print) -> Path:
-    """Reads and scores one posting; returns its application folder."""
+def match_posting(ws: Workspace, url=None, file=None, text=None, log=print, again: bool = False) -> Path:
+    """Reads and scores one posting; returns its NEW application folder. A job you already checked raises
+    applications.AlreadyMatched (nothing is changed) unless `again` is set; `again` never overwrites an old folder."""
     s = ws.settings()
     facts_text = ws.facts_text()
+    if url and not again:                                 # the same link: known before reading anything
+        hit = A.find(ws.applications, url=url)
+        if hit:
+            raise A.AlreadyMatched(hit)
     body, how = P.read(url=url, file=file, text=text)
+    if not again:                                         # the same posting text: no model call
+        hit = A.find(ws.applications, body=body)
+        if hit:
+            raise A.AlreadyMatched(hit)
     log(f"Read the posting from {how}. Extracting its facts ...")
     ex = M.extract(body)
     if not ex.is_job_posting:
         raise P.PostingError("that text is not a single job posting (it looks like a list, login or error page). "
                              "Paste the job text instead")
+    if not again:                                         # the same employer and title: no scoring
+        hit = A.find(ws.applications, title=ex.title, company=ex.company)
+        if hit:
+            raise A.AlreadyMatched(hit)
     label, reason = M.eligibility(ex, s)
     log(f"Right to work: {label} ({reason}). Scoring your fit ...")
     fit = M.score(facts_text, ex, body, label, reason, s)
     cc = (ex.country_code or "XX").upper()
     key = hashlib.sha1(f"{(ex.company or '').lower()}|{ex.title.lower()}|{cc}".encode()).hexdigest()[:6]
-    folder = ws.applications / f"{date.today().isoformat()}-{slug(ex.company, 30)}-{key}"
-    folder.mkdir(parents=True, exist_ok=True)
+    base = f"{date.today().isoformat()}-{slug(ex.company, 30)}-{key}"
+    folder, n = ws.applications / base, 2
+    while folder.exists():                                # never write into an existing application
+        folder, n = ws.applications / f"{base}-{n}", n + 1
+    folder.mkdir(parents=True)
     (folder / "posting.txt").write_text(body, encoding="utf-8")
     (folder / "match.json").write_text(json.dumps({
         "url": url, "read_from": how, "title": ex.title, "company": ex.company, "location": ex.location, "country": cc,
