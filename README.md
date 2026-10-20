@@ -9,25 +9,36 @@ letter in which **every line cites the facts it rests on** and is checked by cod
 Lines that cannot be backed are removed, never saved.
 
 ```
-groundtruth match --url https://careers.example.com/jobs/analytics-engineer
+$ groundtruth match --text-file job_posting.example.txt
 
-78/100 (direct) · Eligible · Analytics Engineer (m/f/d) – Example Mobility GmbH (DE)
-Why: Direct dbt and Snowflake evidence; the e-mobility domain is new.
+88/100 (direct) · Eligible · Analytics Engineer (m/f/d) – Example Mobility GmbH (DE)
+Why: This is a near-direct match: the posting asks for dbt, Snowflake, star schemas, Python and stakeholder
+work, and all of them are backed by the candidate's logistics experience.
 Matched:
-  + dbt on Snowflake -> D1, E1
-  + Dimensional modelling -> E4
+  + Excellent SQL and hands-on dbt experience -> E1, D1 (migrated 30 reporting queries to Snowflake with dbt
+    models and tests), F4 (dbt certification), C1 (open-source dbt package)
+  + Dimensional modelling (star schemas, SCDs) -> E4, D1 (contributed to the design of the new data warehouse)
 Gaps:
-  - No e-mobility domain experience
-Bridge: Fleet and depot data from logistics is close (D1, D2).
+  - No title of analytics engineer: the dbt work was done as part of a senior analyst role (D1)
+  - 'Owning' a dbt project end to end is not shown: D1 says 'contributed to' the warehouse design
+Bridge: Present the Snowflake and dbt migration (D1), the dbt certification (F4) and the open-source dbt
+package (C1) as proof of analytics engineering work, and mention the warehouse design honestly as 'contributed to'.
 
-groundtruth tailor applications/2026-10-20-Example_Mobility_GmbH-3fa9c1
+$ groundtruth tailor applications/2026-10-20-Example_Mobility_GmbH-3b3c98
 
 Drafting (writer model) ...
-  draft 1: 31 lines, 2 failed the fact check, 1 supported keyword(s) missing
+  draft 1: 36 lines, 3 failed the fact check, 0 supported keyword(s) missing
 Redrafting with the checks' feedback ...
-  draft 2: 30 lines, 0 still failing (removed)
-Done: 30 lines verified, 0 removed, 1 to fill, ATS checks 18/18, posting keywords in CV 85%
+  draft 2: 40 lines, 1 still failing (removed)
+Done: 39 lines verified, 1 removed, 0 to fill, ATS checks 17/18, posting keywords in CV 69%
 ```
+
+The one line removed was a real overreach: the letter called "a monthly SQL training for operations staff" the
+candidate's experience of "helping analysts write better SQL". The verifier's note: *D1 says the training is for
+operations staff, not analysts.*
+
+(A real run on the made-up person in [`groundtruth/examples`](groundtruth/examples), `anthropic` profile, 20 Oct 2026.
+See the results: [CV](docs/example-output/Alex_Morgan_CV_Example_Mobility_GmbH.pdf), [cover letter](docs/example-output/Alex_Morgan_Cover_Letter_Example_Mobility_GmbH.pdf) and [checks page](docs/example-output/Checks.html).)
 
 ## What it does
 
@@ -127,11 +138,12 @@ See [`groundtruth/examples/settings.example.yaml`](groundtruth/examples/settings
 Code asks for a role, never a model. Four roles: **triage** (cheap extraction), **judge** (fit score),
 **writer** and **verifier**. Pick a profile with `--models <name>` or `GROUNDTRUTH_MODELS` in `.env`:
 
-| Profile | Keys needed | Roughly per tailored application |
+| Profile | Keys needed | Per job: match + CV and letter |
 |---|---|---|
-| `balanced` (default) | OpenAI, Gemini, Anthropic | $0.05 – 0.15 |
-| `cheap` | Gemini, Anthropic | $0.01 – 0.03 |
-| `anthropic` / `openai` | one | $0.05 – 0.20 |
+| `balanced` (default) | OpenAI, Gemini, Anthropic | about $0.05 – 0.15 (estimate) |
+| `cheap` | Gemini, Anthropic | about $0.01 – 0.03 (estimate) |
+| `anthropic` | Anthropic | $0.18 measured ($0.015 match, $0.17 tailor; about 2.5 minutes) |
+| `openai` | OpenAI | about $0.05 – 0.20 (estimate) |
 | `local` | none (Ollama) | free, slower; quality depends on the model |
 
 The default profile came from a blind test of 8 models across 3 vendors, judged by a cross-vendor panel with

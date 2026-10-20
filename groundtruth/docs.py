@@ -451,7 +451,7 @@ def checks_html(css: str, title: str, ats: dict, rows: list[dict], removed: list
     def kw_state(c):
         if c["covered"]:
             return "ok", "in your CV"
-        return ("bad", "missing, but your fact sheet supports it") if c["on_sheet"] else ("", "not on your fact sheet, so left out")
+        return ("bad", "missing, but your fact sheet supports it") if c["on_sheet"] else ("", "not found in your fact sheet's wording, so left out (if you have it, add it there in these words)")
     kw = "".join(f"<li class='{kw_state(c)[0]}'>{e(c['term'])} — {kw_state(c)[1]}</li>" for c in ats["coverage"]) or "<li>none</li>"
     tr = "".join(f"<tr><td>{e(r['text'][:160])}</td><td>{e(', '.join(r['ids']) or '—')}</td>"
                  f"<td class='{'ok' if r['result'] in ('OK', 'placeholder') else 'bad'}'>{e(r['result'])}</td></tr>" for r in rows)

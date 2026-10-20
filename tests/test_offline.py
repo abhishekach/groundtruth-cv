@@ -181,10 +181,12 @@ def fake_models(drafts: list):
                                                                    fact_ids=[], placeholder=True)])],
             letter=letter, posting_keywords=["dbt", "Snowflake", "Power BI", "Kubernetes"], photo_expected=False,
             photo_reason="international tech company", contact_person="Ms Jana Example", reference="AE-2026-14",
+            employer_address=["Example Mobility GmbH", "Berlin, Germany"],
             emphasis=["Led with the dbt migration"], placeholders=["Snowflake certification"],
             change_log=["Done: added Python"] if revision else [])
 
-    def verify(facts_text, numbered):
+    def verify(facts_text, numbered, posting=""):
+        assert "Analytics Engineer" in posting, "the verifier sees the posting"
         return {n: W.Verdict(n=n, verdict="overstated" if "Led the design" in l.text else
                              "placeholder_ok" if "[TO FILL" in l.text else "framing_ok" if l.framing else "supported",
                              problem="the sheet says 'contributed to the design'" if "Led the design" in l.text else None)
@@ -216,10 +218,11 @@ def test_pipeline():
     assert "[TO FILL" in cv and "dbt Analytics Engineering Certification" in cv
     assert r["paths"]["cv_pdf"].name == "Alex_Morgan_CV_Example_Mobility_GmbH.pdf"
     letter = "\n".join(pg.extract_text() for pg in PdfReader(str(r["paths"]["letter_pdf"])).pages)
+    assert letter.count("Example Mobility GmbH") == 1, "employer named once in the address block"
     assert "Dear Ms Example," in letter and "Reference AE-2026-14" in letter and "Kind regards" in letter
     checks = r["paths"]["checks"].read_text()
     assert "Removed during verification" in checks and "Led the design" in checks
-    assert "Kubernetes — not on your fact sheet" in checks, "keywords you lack are reported, never added"
+    assert "Kubernetes — not found in your fact sheet" in checks, "keywords you lack are reported, never added"
     assert r["removed"] == 1 and r["ats_passed"] >= r["ats_total"] - 2
 
     r2 = T.tailor(ws, folder, change="Add a Python skills line", log=lambda *_: None)

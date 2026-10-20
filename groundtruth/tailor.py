@@ -127,7 +127,7 @@ def rule_problem(line: W.Line, on_cv: bool, s: Settings) -> str | None:
     return None
 
 
-def check_all(facts_text: str, facts: dict, d: W.JobDraft, s: Settings) -> tuple[list, dict[int, str]]:
+def check_all(facts_text: str, facts: dict, d: W.JobDraft, s: Settings, posting: str = "") -> tuple[list, dict[int, str]]:
     """Numbered lines and {n: problem} for every failing line: code checks first, then the verifier model."""
     numbered, problems = [], {}
     n_cv = 1 + sum(len(x.lines) for x in d.cv)
@@ -136,7 +136,7 @@ def check_all(facts_text: str, facts: dict, d: W.JobDraft, s: Settings) -> tuple
         p = code_check(l, facts) or rule_problem(l, n <= n_cv, s)
         if p:
             problems[n] = f"code check: {p}"
-    verdicts = W.verify(facts_text, numbered)
+    verdicts = W.verify(facts_text, numbered, posting)
     for n, l in numbered:
         v = verdicts.get(n)
         if v is None:
@@ -172,11 +172,11 @@ def style_issues(d: W.JobDraft) -> list[tuple[str, str]]:
     return out
 
 
-def two_passes(facts_text: str, facts: dict, make, s: Settings, revising: bool = False, log=print):
+def two_passes(facts_text: str, facts: dict, make, s: Settings, revising: bool = False, log=print, posting: str = ""):
     """Draft and check; one redraft with precise feedback if anything failed; check again."""
     log("Revising (writer model) ..." if revising else "Drafting (writer model) ...")
     d = make(None)
-    numbered, problems = check_all(facts_text, facts, d, s)
+    numbered, problems = check_all(facts_text, facts, d, s, posting)
     gaps = [] if revising else keyword_gaps(d, facts_text)
     req = [] if revising else missing_required(d, s)
     style = style_issues(d)
@@ -199,7 +199,7 @@ def two_passes(facts_text: str, facts: dict, make, s: Settings, revising: bool =
                       + "\n".join(f"- {g}" for g in gaps))
         log("Redrafting with the checks' feedback ...")
         d = make("\n\n".join(fb))
-        numbered, problems = check_all(facts_text, facts, d, s)
+        numbered, problems = check_all(facts_text, facts, d, s, posting)
         log(f"  draft 2: {len(numbered)} lines, {len(problems)} still failing (removed)")
     return d, problems
 
@@ -264,6 +264,16 @@ def paragraphs(letter: list[dict]) -> list[str]:
     return [" ".join(v) for _, v in sorted(out.items())]
 
 
+def _dedupe(lines: list) -> list[str]:
+    out, seen = [], set()
+    for x in lines:
+        k = re.sub(r"\W+", " ", (x or "").lower()).strip()
+        if k and k not in seen:
+            seen.add(k)
+            out.append(x.strip())
+    return out
+
+
 def letter_frame(head: dict, recipient: str, contact: str | None, address: list[str], subject: str,
                  paras: list[str]) -> dict:
     city = (head.get("location") or "").split(",")[0].strip()
@@ -271,7 +281,7 @@ def letter_frame(head: dict, recipient: str, contact: str | None, address: list[
     return {"sender": [x for x in [head["name"], head.get("location"),
                                    " | ".join(x for x in [head.get("email"), head.get("phone")] if x),
                                    *(head.get("links") or [])] if x],
-            "recipient": [x for x in [recipient, contact, *address] if x],
+            "recipient": _dedupe([recipient, contact, *address]),
             "place_date": f"{city}, {today}" if city else today,
             "subject": subject, "salutation": salutation(contact) or "Dear Hiring Team,",
             "paragraphs": paras, "closing": "Kind regards,"}
@@ -309,7 +319,7 @@ def tailor(ws: Workspace, folder: Path, change: str | None = None, log=print) ->
     job = {"title": m["title"], "company": m["company"], "location": m["location"], "country": m["country"], "fit": m["fit"]}
     d, problems = two_passes(facts_text, facts,
                              lambda fb: W.draft(facts_text, job, posting, s, feedback=fb, revision=revision),
-                             s, revising=bool(change), log=log)
+                             s, revising=bool(change), log=log, posting=posting)
     rows, removed = [], []
     headline = keep([d.headline], 1, problems, rows, removed)
     cv, n = sections(d.cv, 2, problems, rows, removed)
