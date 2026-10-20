@@ -140,9 +140,9 @@ Code asks for a role, never a model. Four roles: **triage** (cheap extraction), 
 
 | Profile | Keys needed | Per job: match + CV and letter |
 |---|---|---|
-| `balanced` (default) | OpenAI, Gemini, Anthropic | about $0.05 – 0.15 (estimate) |
+| `balanced` (default) | OpenAI, Gemini, Anthropic | about $0.15 – 0.25 (measured on the author's own CVs: a long fact sheet, 2 pages) |
 | `cheap` | Gemini, Anthropic | about $0.01 – 0.03 (estimate) |
-| `anthropic` | Anthropic | $0.18 measured ($0.015 match, $0.17 tailor; about 2.5 minutes) |
+| `anthropic` | Anthropic | $0.18 measured on the example person ($0.015 match, $0.17 tailor; about 2.5 minutes) |
 | `openai` | OpenAI | about $0.05 – 0.20 (estimate) |
 | `local` | none (Ollama) | free, slower; quality depends on the model |
 
