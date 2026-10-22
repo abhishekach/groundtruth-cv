@@ -161,7 +161,11 @@ catching its own inventions. Any model [LiteLLM](https://docs.litellm.ai/docs/pr
 `groundtruth/models.yaml` into your workspace and edit it.
 
 Every call is logged with its cost to `.groundtruth/ledger.sqlite` in your workspace, and
-`GROUNDTRUTH_MONTHLY_BUDGET_USD` (default $10) stops paid calls once the month's spend reaches it.
+`GROUNDTRUTH_MONTHLY_BUDGET_USD` (default $10) and `GROUNDTRUTH_RUN_BUDGET_USD` (default $2 per command) are checked
+before every model attempt, against that attempt's worst case (the prompt plus its output limit at list price), so a
+retry can never slip past the cap. A model without a known price is logged at an estimated price (`cost_kind`
+`estimated` in the ledger), never as free, and a call that cannot be written to a busy ledger waits in
+`.groundtruth/ledger_pending.jsonl` until the next one. Long documents are fact-checked in batches of 10 lines.
 
 ## Privacy
 

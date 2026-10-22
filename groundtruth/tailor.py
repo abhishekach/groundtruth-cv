@@ -220,6 +220,19 @@ def two_passes(facts_text: str, facts: dict, make, s: Settings, revising: bool =
     return d, problems
 
 
+MUST_HAVE = ["Professional Experience", "Education"]
+
+
+def final_review(cv: list[dict], letter: list) -> list[str]:
+    """Checks on the FINISHED document, after the redraft and after failing lines were removed. Anything found is
+    listed first in the notes as 'Needs your review'; the files are still written, nothing is sent."""
+    have = {x["heading"] for x in cv}
+    out = [f"The {h} section is empty or missing after the fact check" for h in MUST_HAVE if h not in have]
+    if not letter:
+        out.append("The cover letter is empty after the fact check")
+    return out
+
+
 def keep(lines: list, start: int, problems: dict, rows: list, removed: list) -> list[dict]:
     out = []
     for i, l in enumerate(lines):
@@ -353,7 +366,8 @@ def tailor(ws: Workspace, folder: Path, change: str | None = None, log=print) ->
     ref = f" – Reference {d.reference}" if d.reference else ""
     L = letter_frame(head, m.get("company") or "", d.contact_person, d.employer_address,
                      f"Application for the position of {m['title']}{ref}", paragraphs(letter))
-    notes = []
+    review = final_review(cv, letter)
+    notes = [f"NEEDS YOUR REVIEW: {x}" for x in review]
     if change:
         notes += [f"Your change request: {change.strip()}"] + (d.change_log or ["(no change log returned; check the documents)"])
     notes += [*d.emphasis, *[f"TO FILL: {x}" for x in d.placeholders]]
@@ -387,4 +401,4 @@ def tailor(ws: Workspace, folder: Path, change: str | None = None, log=print) ->
                                                    "requests": requests}, indent=1, ensure_ascii=False), encoding="utf-8")
     return {"folder": folder, "paths": paths, "verified": len(rows), "removed": len(removed),
             "placeholders": len(d.placeholders), "ats_passed": ats["passed"], "ats_total": ats["total"],
-            "keywords_pct": ats["pct"], "notes": notes}
+            "keywords_pct": ats["pct"], "notes": notes, "needs_review": review}

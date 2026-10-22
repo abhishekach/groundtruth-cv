@@ -317,6 +317,67 @@ def test_check_command():
     shutil.rmtree(ws.root)
 
 
+def test_budget_ledger_and_batches():
+    """Budget before every attempt, unknown prices estimated (never $0), a busy ledger loses nothing, the fact check
+    runs in batches, and the finished document is reviewed after failing lines are removed."""
+    import os
+    import sqlite3
+    from pydantic import BaseModel
+
+    class Out(BaseModel):
+        keep: list[int]
+
+    os.environ["GROUNDTRUTH_MONTHLY_BUDGET_USD"] = "10"
+    workspace()
+    llm.S.roles["judge"] = {"model": "openai/unknown-test-model"}
+    calls = []
+
+    def fake(role, messages, temperature, max_tokens, response_format=None, fallback=True):
+        calls.append(max_tokens)
+        return script[len(calls) - 1]
+    llm._complete = fake
+    script = [_resp("not json"), _resp('{"keep":[1]}')]
+    assert llm.ask("judge", "x", schema=Out).keep == [1]
+    with llm._db() as con:
+        rows = con.execute("select cost_usd, cost_kind from calls").fetchall()
+    assert rows and all(c > 0 and k == "estimated" for c, k in rows), rows
+    # the cap is checked before the second attempt, not only once per answer
+    os.environ["GROUNDTRUTH_RUN_BUDGET_USD"] = str(llm.S.run_cost + 0.0001)
+    calls.clear()
+    script = [_resp("not json"), _resp('{"keep":[2]}')]
+    try:
+        llm.ask("judge", "x", schema=Out)
+        raise AssertionError("run cap ignored")
+    except llm.BudgetExceeded as e:
+        assert "GROUNDTRUTH_RUN_BUDGET_USD" in str(e) and len(calls) == 0
+    os.environ["GROUNDTRUTH_RUN_BUDGET_USD"] = "2"
+    real = llm._db
+    llm._db = lambda: (_ for _ in ()).throw(sqlite3.OperationalError("database is locked"))
+    llm._log("t", "judge", "m", 1, 1, 0.5, 1, True)
+    llm._db = real
+    assert llm._pending().exists()
+    llm._log("t", "judge", "m", 1, 1, 0.25, 1, True)
+    assert not llm._pending().exists()
+
+    seen = []
+
+    def fake_ask(role, prompt, **k):
+        ns = [int(x.split(".")[0]) for x in prompt.split("LINES (cited IDs in brackets)\n")[1].splitlines()]
+        seen.append(ns)
+        return fresh.Check(lines=[{"n": n, "verdict": "supported"} for n in ns])
+    import importlib.util
+    spec = importlib.util.find_spec("groundtruth.writer")     # a fresh copy: other tests replace W.verify with a fake
+    fresh = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fresh)
+    fresh.ask = fake_ask
+    lines = [(n, fresh.Line(text=f"line {n}", style="bullet", fact_ids=["D1"])) for n in range(1, 24)]
+    v = fresh.verify("D1. fact", lines)
+    assert sorted(v) == list(range(1, 24)) and len(seen) == 3 and all(len(b) <= fresh.VERIFY_BATCH for b in seen)
+    assert T.final_review([{"heading": "Education", "lines": [1]}], []) == [
+        "The Professional Experience section is empty or missing after the fact check", "The cover letter is empty after the fact check"]
+    assert T.final_review([{"heading": "Professional Experience", "lines": [1]}, {"heading": "Education", "lines": [1]}], [{"text": "x"}]) == []
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

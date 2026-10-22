@@ -140,6 +140,8 @@ def cmd_tailor(a, change: str | None = None) -> int:
           + (f", posting keywords in CV {r['keywords_pct']}%" if r["keywords_pct"] is not None else ""))
     for k in ("cv_pdf", "letter_pdf", "cv_docx", "letter_docx", "checks"):
         print(f"  {p[k]}")
+    for x in r.get("needs_review") or []:
+        print(f"NEEDS YOUR REVIEW: {x}")
     if r["placeholders"]:
         print("Open Checks.html: highlighted [TO FILL] items need your input before you send anything.")
     print(f"Model cost of this run: ${llm.S.run_cost:.3f}")
